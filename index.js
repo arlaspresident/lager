@@ -3,11 +3,27 @@ const fastify = Fastify({ logger: true })
 
 const cors = require('@fastify/cors')
 const db = require('./db')
+const jwt = require('@fastify/jwt')
+const bcrypt = require('bcrypt')
+
 
 
 fastify.register(cors, {
   origin: true
 })
+
+fastify.register(jwt, {
+  secret: process.env.JWT_SECRET || 'dev_secret_byta_sen'
+})
+
+fastify.decorate('authenticate', async (request, reply) => {
+  try {
+    await request.jwtVerify()
+  } catch (err) {
+    return reply.code(401).send({ error: 'Du måste vara inloggad' })
+  }
+})
+
 
 //health check
 fastify.get('/health', async () => {
@@ -98,6 +114,69 @@ fastify.delete('/categories/:id', async (request, reply) => {
 
   return reply.code(204).send()
 })
+
+
+fastify.post('/auth/register', async (request, reply) => {
+  const { email, password, role } = request.body || {}
+
+  if (!email || !password) {
+    return reply.code(400).send({ error: 'email och password krävs' })
+  }
+
+  if (typeof password !== 'string' || password.length < 6) {
+    return reply.code(400).send({ error: 'lösenord måste vara minst 6 tecken' })
+  }
+
+  const normalizedEmail = String(email).trim().toLowerCase()
+  const userRole = role && String(role).trim() ? String(role).trim() : 'staff'
+
+  //kolla om användare finns
+  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail)
+  if (existing) {
+    return reply.code(409).send({ error: 'Användare finns redan' })
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10)
+
+  const result = db
+    .prepare('INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)')
+    .run(normalizedEmail, passwordHash, userRole)
+
+  return reply.code(201).send({ id: result.lastInsertRowid, email: normalizedEmail, role: userRole })
+})
+
+fastify.post('/auth/login', async (request, reply) => {
+  const { email, password } = request.body || {}
+
+  if (!email || !password) {
+    return reply.code(400).send({ error: 'email och password krävs' })
+  }
+
+  const normalizedEmail = String(email).trim().toLowerCase()
+
+  const user = db
+    .prepare('SELECT id, email, password_hash, role FROM users WHERE email = ?')
+    .get(normalizedEmail)
+
+  if (!user) {
+    return reply.code(401).send({ error: 'Fel email eller lösenord' })
+  }
+
+  const ok = await bcrypt.compare(password, user.password_hash)
+  if (!ok) {
+    return reply.code(401).send({ error: 'Fel email eller lösenord' })
+  }
+
+  const token = fastify.jwt.sign({ sub: user.id, email: user.email, role: user.role })
+
+  return { token }
+})
+
+//test route för att verifiera jwt
+fastify.get('/me', { preHandler: [fastify.authenticate] }, async (request) => {
+  return request.user
+})
+
 
 //startar servern
 const start = async () => {
