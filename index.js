@@ -1,3 +1,4 @@
+require('dotenv').config()
 const Fastify = require('fastify')
 const fastify = Fastify({ logger: true })
 
