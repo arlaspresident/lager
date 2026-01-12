@@ -31,12 +31,12 @@ fastify.get('/health', async () => {
 })
 
 //hämta alla kategorier
-fastify.get('/categories', async () => {
+fastify.get('/categories', { preHandler: [fastify.authenticate] }, async () => {
   return db.prepare('SELECT * FROM categories').all()
 })
 
 //skapa ny kategori
-fastify.post('/categories', async (request, reply) => {
+fastify.post('/categories', { preHandler: [fastify.authenticate] }, async (request, reply) => {
   const { name } = request.body || {}
 
   if (!name || typeof name !== 'string' || name.trim().length < 2) {
@@ -54,7 +54,7 @@ fastify.post('/categories', async (request, reply) => {
 })
 
 //hämta en specifik kategori med id
-fastify.get('/categories/:id', async (request, reply) => {
+fastify.get('/categories/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
   const id = Number(request.params.id)
 
   if (!Number.isInteger(id)) {
@@ -73,7 +73,7 @@ fastify.get('/categories/:id', async (request, reply) => {
 })
 
 //uppdatera kategori
-fastify.put('/categories/:id', async (request, reply) => {
+fastify.put('/categories/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
   const id = Number(request.params.id)
   const { name } = request.body || {}
 
@@ -97,7 +97,7 @@ fastify.put('/categories/:id', async (request, reply) => {
 })
 
 //ta bort kategori
-fastify.delete('/categories/:id', async (request, reply) => {
+fastify.delete('/categories/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
   const id = Number(request.params.id)
 
   if (!Number.isInteger(id)) {
@@ -175,6 +175,19 @@ fastify.post('/auth/login', async (request, reply) => {
 //test route för att verifiera jwt
 fastify.get('/me', { preHandler: [fastify.authenticate] }, async (request) => {
   return request.user
+})
+
+//hämta alla produkter
+fastify.get('/products', { preHandler: [fastify.authenticate] }, async () => {
+  return db.prepare(`
+    SELECT 
+      p.id, p.sku, p.name, p.description, p.location, p.price, p.quantity, p.is_active,
+      p.category_id,
+      c.name AS category_name
+    FROM products p
+    LEFT JOIN categories c ON c.id = p.category_id
+    ORDER BY p.id DESC
+  `).all()
 })
 
 
