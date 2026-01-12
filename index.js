@@ -190,6 +190,62 @@ fastify.get('/products', { preHandler: [fastify.authenticate] }, async () => {
   `).all()
 })
 
+//skapa ny produkt
+fastify.post('/products', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  const {
+    sku,
+    name,
+    description = null,
+    category_id = null,
+    location = null,
+    price = null,
+    quantity = 0,
+    is_active = 1
+  } = request.body || {}
+
+  //enkel validering
+  if (!sku || typeof sku !== 'string') {
+    return reply.code(400).send({ error: 'sku krävs' })
+  }
+
+  if (!name || typeof name !== 'string' || name.trim().length < 2) {
+    return reply.code(400).send({ error: 'namn måste vara minst 2 tecken' })
+  }
+
+  const qty = Number(quantity)
+  if (!Number.isInteger(qty) || qty < 0) {
+    return reply.code(400).send({ error: 'kvantitet måste vara ett heltal' })
+  }
+
+  const pr = price === null ? null : Number(price)
+  if (pr !== null && Number.isNaN(pr)) {
+    return reply.code(400).send({ error: 'pris måste vara ett nummer' })
+  }
+
+  const catId = category_id === null ? null : Number(category_id)
+  if (catId !== null && !Number.isInteger(catId)) {
+    return reply.code(400).send({ error: 'category_id måste vara ett heltal' })
+  }
+
+  const result = db.prepare(`
+    INSERT INTO products (sku, name, description, category_id, location, price, quantity, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    sku.trim(),
+    name.trim(),
+    description,
+    catId,
+    location,
+    pr,
+    qty,
+    is_active ? 1 : 0
+  )
+
+  const created = db.prepare('SELECT * FROM products WHERE id = ?').get(result.lastInsertRowid)
+  return reply.code(201).send(created)
+})
+
+
 
 //startar servern
 const start = async () => {
