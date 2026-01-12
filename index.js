@@ -297,6 +297,23 @@ fastify.put('/products/:id', { preHandler: [fastify.authenticate] }, async (requ
   return updated
 })
 
+  //ta bort en produkt
+fastify.delete('/products/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  const id = Number(request.params.id)
+
+  if (!Number.isInteger(id)) {
+    return reply.code(400).send({ error: 'Ogiltigt ID' })
+  }
+
+  const result = db.prepare('DELETE FROM products WHERE id = ?').run(id)
+
+  if (result.changes === 0) {
+    return reply.code(404).send({ error: 'Produkt hittades inte' })
+  }
+
+  return reply.code(204).send()
+})
+
 //skapa ny produkt
 fastify.post('/products', { preHandler: [fastify.authenticate] }, async (request, reply) => {
   const {
