@@ -190,6 +190,113 @@ fastify.get('/products', { preHandler: [fastify.authenticate] }, async () => {
   `).all()
 })
 
+//hämta en produkt via id
+fastify.get('/products/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  const id = Number(request.params.id)
+
+  if (!Number.isInteger(id)) {
+    return reply.code(400).send({ error: 'Ogiltigt ID' })
+  }
+
+  const product = db.prepare(`
+    SELECT 
+      p.id,
+      p.sku,
+      p.name,
+      p.description,
+      p.location,
+      p.price,
+      p.quantity,
+      p.is_active,
+      p.category_id,
+      c.name AS category_name
+    FROM products p
+    LEFT JOIN categories c ON c.id = p.category_id
+    WHERE p.id = ?
+  `).get(id)
+
+  if (!product) {
+    return reply.code(404).send({ error: 'Produkt hittades inte' })
+  }
+
+  return product
+})
+
+//uppdatera en produkt
+fastify.put('/products/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  const id = Number(request.params.id)
+
+  if (!Number.isInteger(id)) {
+    return reply.code(400).send({ error: 'Ogiltigt ID' })
+  }
+
+  const {
+    sku,
+    name,
+    description = null,
+    category_id = null,
+    location = null,
+    price = null,
+    quantity = 0,
+    is_active = 1
+  } = request.body || {}
+
+  if (!sku || typeof sku !== 'string') {
+    return reply.code(400).send({ error: 'sku krävs' })
+  }
+
+  if (!name || typeof name !== 'string' || name.trim().length < 2) {
+    return reply.code(400).send({ error: 'namn måste vara minst 2 tecken' })
+  }
+
+  const qty = Number(quantity)
+  if (!Number.isInteger(qty) || qty < 0) {
+    return reply.code(400).send({ error: 'kvantitet måste vara ett heltal' })
+  }
+
+  const pr = price === null ? null : Number(price)
+  if (pr !== null && Number.isNaN(pr)) {
+    return reply.code(400).send({ error: 'pris måste vara ett nummer' })
+  }
+
+  const catId = category_id === null ? null : Number(category_id)
+  if (catId !== null && !Number.isInteger(catId)) {
+    return reply.code(400).send({ error: 'category_id måste vara ett heltal' })
+  }
+
+  //uppdatera bara om produkten finns
+  const existing = db.prepare('SELECT id FROM products WHERE id = ?').get(id)
+  if (!existing) {
+    return reply.code(404).send({ error: 'Produkt hittades inte' })
+  }
+
+  try {
+    db.prepare(`
+      UPDATE products
+      SET sku = ?, name = ?, description = ?, category_id = ?, location = ?, price = ?, quantity = ?, is_active = ?
+      WHERE id = ?
+    `).run(
+      sku.trim(),
+      name.trim(),
+      description,
+      catId,
+      location,
+      pr,
+      qty,
+      is_active ? 1 : 0,
+      id
+    )
+  } catch (err) {
+    if (err.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+      return reply.code(400).send({ error: 'category_id finns inte' })
+    }
+    throw err
+  }
+
+  const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(id)
+  return updated
+})
+
 //skapa ny produkt
 fastify.post('/products', { preHandler: [fastify.authenticate] }, async (request, reply) => {
   const {
@@ -245,6 +352,36 @@ fastify.post('/products', { preHandler: [fastify.authenticate] }, async (request
   return reply.code(201).send(created)
 })
 
+//justera lagersaldo för en produkt 
+fastify.patch('/products/:id/stock', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  const id = Number(request.params.id)
+  const { delta } = request.body || {}
+
+  if (!Number.isInteger(id)) {
+    return reply.code(400).send({ error: 'Ogiltigt ID' })
+  }
+
+  const d = Number(delta)
+  if (!Number.isInteger(d) || d === 0) {
+    return reply.code(400).send({ error: 'delta måste vara ett heltal och inte 0' })
+  }
+
+  //hämta nuvarande saldo
+  const product = db.prepare('SELECT id, quantity FROM products WHERE id = ?').get(id)
+  if (!product) {
+    return reply.code(404).send({ error: 'Produkt hittades inte' })
+  }
+
+  const newQty = product.quantity + d
+  if (newQty < 0) {
+    return reply.code(400).send({ error: 'Lagersaldo kan inte bli negativt' })
+  }
+
+  db.prepare('UPDATE products SET quantity = ? WHERE id = ?').run(newQty, id)
+
+  const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(id)
+  return updated
+})
 
 
 //startar servern
